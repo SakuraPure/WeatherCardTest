@@ -1,0 +1,2078 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Synesthetic Weather Card</title>
+<style>
+:root {
+  --card-width: 420px;
+  --card-height: 580px;
+  --transition-duration: 1200ms;
+  --scene-hue: 40;
+  --scene-saturation: 70%;
+  --scene-lightness: 55%;
+  --glow-strength: 0.25;
+  --accent-color: hsl(var(--scene-hue), var(--scene-saturation), 65%);
+  --scene-ambient: hsl(calc(var(--scene-hue) + 180), 50%, 12%);
+  --bg-color: var(--scene-ambient);
+  --text-color: rgba(255, 255, 255, 0.92);
+  --card-ambient: rgba(12, 16, 26, 0.55);
+  --pointer-x: 50vw;
+  --pointer-y: 50vh;
+  --pointer-active: 0;
+  --color-temp-rgb: 255, 215, 170;
+  --humidity-level: 0.6;
+  --humidity-glow: 0.8;
+  --wind-level: 0.25;
+  --wind-angle: 0deg;
+  --wind-opacity: 0.6;
+  --uv-level: 0.4;
+  --dew-shift: 0.5;
+  --dew-opacity: 0.6;
+  font-family: "Segoe UI", "PingFang SC", "Hiragino Sans", "Helvetica Neue", sans-serif;
+}
+* {
+  box-sizing: border-box;
+  user-select: none;
+}
+body {
+  margin: 0;
+  background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.08), transparent 60%),
+    radial-gradient(circle at 80% 10%, rgba(255, 255, 255, 0.04), transparent 70%),
+    radial-gradient(circle at 50% 90%, rgba(255, 255, 255, 0.06), transparent 70%),
+    #02030c;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--text-color);
+}
+body::before {
+  content: "";
+  position: fixed;
+  width: 70vw;
+  height: 70vw;
+  max-width: 780px;
+  max-height: 780px;
+  top: calc(var(--pointer-y) - 35vw);
+  left: calc(var(--pointer-x) - 35vw);
+  background: radial-gradient(
+    circle,
+    rgba(var(--color-temp-rgb), 0.4),
+    rgba(var(--color-temp-rgb), 0.05) 55%,
+    transparent 75%
+  );
+  mix-blend-mode: screen;
+  opacity: calc(var(--pointer-active) * 0.6);
+  filter: blur(18px);
+  pointer-events: none;
+  transition: opacity 400ms ease, transform 600ms ease;
+  transform: translate3d(0, 0, 0);
+  z-index: 0;
+}
+canvas#sky {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+}
+#card-wrapper {
+  position: relative;
+  width: var(--card-width);
+  height: var(--card-height);
+  perspective: 1200px;
+  z-index: 1;
+}
+.weather-card {
+  position: absolute;
+  inset: 0;
+  border-radius: 30px;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(var(--color-temp-rgb), 0.22), transparent 65%),
+    linear-gradient(160deg, rgba(var(--color-temp-rgb), 0.15), rgba(255, 255, 255, 0.02)),
+    var(--card-ambient);
+  backdrop-filter: blur(24px) saturate(1.35);
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  transition: transform 500ms ease, box-shadow 500ms ease;
+  transform-style: preserve-3d;
+}
+.weather-card::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 32px;
+  background: linear-gradient(120deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.03) 40%,
+      rgba(255, 255, 255, 0.12) 65%,
+      rgba(255, 255, 255, 0.02));
+  filter: blur(0.5px);
+  z-index: -1;
+}
+.weather-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 30px;
+  background: radial-gradient(circle at top, rgba(255, 255, 255, calc(0.6 * var(--glow-strength))), transparent 55%),
+    radial-gradient(circle at bottom, rgba(255, 255, 255, calc(0.25 * var(--glow-strength))), transparent 60%);
+  mix-blend-mode: screen;
+  opacity: 0.75;
+  pointer-events: none;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+header .title {
+  font-size: 1.6rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.55);
+}
+header .scene-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  position: relative;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0));
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.35), 0 0 20px rgba(255, 255, 255, 0.18);
+  display: grid;
+  place-items: center;
+}
+header .scene-icon span {
+  font-size: 1.4rem;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.6));
+}
+.scene-switcher {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.scene-switcher button {
+  border: none;
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: background 350ms ease, transform 350ms ease;
+}
+.scene-switcher button:hover {
+  transform: translateY(-4px);
+}
+.scene-switcher button.active {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.scene-switcher button span.icon {
+  font-size: 1.35rem;
+}
+.scene-switcher button span.label {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px 12px;
+}
+.metric {
+  position: relative;
+  padding: 12px 10px 12px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
+}
+.metric::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(140deg, transparent, rgba(255, 255, 255, 0.14));
+  mix-blend-mode: screen;
+  opacity: 0.35;
+}
+.metric h3 {
+  margin: 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.75;
+}
+.metric .value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 6px 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.metric .value small {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+.metric .visual {
+  position: relative;
+  height: 46px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.25);
+}
+.metric .visual::after,
+.metric .visual::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transition: transform 600ms ease, opacity 600ms ease, filter 600ms ease;
+  pointer-events: none;
+}
+.metric[data-type="humidity"] .visual::after {
+  inset: 10% 12% 6% 12%;
+  border-radius: 18px 18px 24px 24px;
+  background: linear-gradient(180deg, rgba(200, 240, 255, 0.55), rgba(90, 160, 220, 0.65));
+  transform-origin: bottom;
+  transform: scaleY(var(--humidity-level));
+  filter: saturate(calc(0.7 + var(--humidity-level)));
+}
+.metric[data-type="humidity"] .visual::before {
+  inset: 16% 30% auto 30%;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  opacity: var(--humidity-glow);
+  transform: translateY(calc((1 - var(--humidity-level)) * 18px));
+}
+.metric[data-type="wind"] .visual::before {
+  inset: 18% 18% 18% 18%;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.32)),
+    rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 16px rgba(255, 255, 255, 0.12);
+}
+.metric[data-type="wind"] .visual::after {
+  inset: 0;
+  margin: 6px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transform-origin: center;
+  transform: rotate(var(--wind-angle));
+  opacity: var(--wind-opacity);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.65));
+}
+.metric[data-type="uv"] .visual::after {
+  inset: 20% 12%;
+  border-radius: 20px;
+  background: linear-gradient(90deg, #6b2cf5, #18a4f7, #17f776, #f5ed2c, #f77a17, #ff1d1d);
+  transform-origin: left;
+  transform: scaleX(var(--uv-level));
+  filter: saturate(1.4);
+}
+.metric[data-type="dew"] .visual::after {
+  inset: 18% 16%;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.45), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(120, 180, 255, 0.05));
+  transform: translateY(calc((0.5 - var(--dew-shift)) * 20px));
+  opacity: var(--dew-opacity);
+}
+#temperature {
+  font-size: 4.5rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  align-self: flex-start;
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.45);
+}
+#temperature span.unit {
+  font-size: 2.2rem;
+}
+#uv-spectrum {
+  height: 6px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #6b2cf5, #18a4f7, #17f776, #f5ed2c, #f77a17, #ff1d1d);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.22);
+}
+#timeline {
+  height: 76px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.06);
+  position: relative;
+  overflow: hidden;
+}
+#timeline canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.audio-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.audio-control button {
+  border: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.05));
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 10px 20px rgba(0, 0, 0, 0.3);
+  display: grid;
+  place-items: center;
+  color: var(--bg-color);
+  transition: transform 260ms ease;
+}
+.audio-control button:hover {
+  transform: scale(1.04);
+}
+.audio-control .volume {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.audio-control input[type="range"] {
+  flex: 1;
+  appearance: none;
+  height: 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.24);
+  outline: none;
+}
+.audio-control input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.65);
+}
+.audio-control .music-title {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+#splash {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 16, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  color: #fff;
+  z-index: 5;
+  backdrop-filter: blur(10px);
+}
+#splash button {
+  border: none;
+  background: linear-gradient(120deg, rgba(255, 215, 114, 0.92), rgba(255, 94, 94, 0.95));
+  color: #211f1b;
+  padding: 14px 24px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(255, 135, 63, 0.35);
+}
+#ripple-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: 30px;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+.ripple {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.65), transparent 60%);
+  opacity: 0.8;
+  animation: ripple 1.2s ease-out forwards;
+}
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(8);
+    opacity: 0;
+  }
+}
+#spectral-bars {
+  width: 92px;
+  height: 32px;
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+}
+#spectral-bars span {
+  flex: 1;
+  height: 12px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.4);
+}
+footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+#status-line {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  opacity: 0.8;
+  display: flex;
+  justify-content: space-between;
+}
+.breathing {
+  animation: breathing 8s ease-in-out infinite;
+}
+@keyframes breathing {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.01);
+  }
+}
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div id="card-wrapper">
+  <div id="ripple-layer"></div>
+  <article class="weather-card breathing" id="weatherCard">
+    <header>
+      <div class="title">Aurora Weather Atelier</div>
+      <div class="scene-icon"><span id="sceneGlyph">☀️</span></div>
+    </header>
+    <div id="temperature"><span id="tempValue">26</span><span class="unit">°C</span></div>
+    <div class="metrics">
+      <div class="metric" data-type="humidity">
+        <div class="visual" aria-hidden="true"></div>
+        <h3>Humidity</h3>
+        <div class="value"><span id="humidity">58</span><small>%</small></div>
+      </div>
+      <div class="metric" data-type="wind">
+        <div class="visual" aria-hidden="true"></div>
+        <h3>Wind</h3>
+        <div class="value"><span id="windSpeed">12</span><small>km/h</small></div>
+      </div>
+      <div class="metric" data-type="uv">
+        <div class="visual" aria-hidden="true"></div>
+        <h3>UV Index</h3>
+        <div class="value"><span id="uvIndex">4</span></div>
+      </div>
+      <div class="metric" data-type="dew">
+        <div class="visual" aria-hidden="true"></div>
+        <h3>Dew Point</h3>
+        <div class="value"><span id="dewPoint">16</span><small>°C</small></div>
+      </div>
+    </div>
+    <div id="uv-spectrum"></div>
+    <div id="timeline"><canvas id="timelineCanvas" width="340" height="120"></canvas></div>
+    <div class="scene-switcher">
+      <button data-scene="sunny" class="active"><span class="icon">☀️</span><span class="label">Sunny</span></button>
+      <button data-scene="rainy"><span class="icon">🌧️</span><span class="label">Rain</span></button>
+      <button data-scene="snowy"><span class="icon">❄️</span><span class="label">Snow</span></button>
+      <button data-scene="windy"><span class="icon">🌪️</span><span class="label">Wind</span></button>
+    </div>
+    <footer>
+      <div class="audio-control">
+        <button id="toggleAudio">▶</button>
+        <div class="volume">
+          <div id="spectral-bars"></div>
+          <input type="range" id="volume" min="0" max="1" step="0.01" value="0.72" />
+        </div>
+        <div class="music-title" id="musicTitle">Sunlit Pastoral</div>
+      </div>
+      <div id="status-line">
+        <span id="sceneStatus">Sunset glow bathing the valley.</span>
+        <span id="timeLabel">18:22</span>
+      </div>
+    </footer>
+  </article>
+</div>
+<div id="splash">
+  <h1>Tap to awaken the weather spirits</h1>
+  <button id="startExperience">Begin Immersion</button>
+</div>
+<script>
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const TAU = Math.PI * 2;
+const rand = (min, max) => Math.random() * (max - min) + min;
+const hexToRgb = (hex) => {
+  const normalized = hex.replace("#", "");
+  const bigint = parseInt(normalized, 16);
+  const length = normalized.length === 3 ? 1 : 0;
+  if (length) {
+    const r = ((bigint >> 8) & 0xf) * 17;
+    const g = ((bigint >> 4) & 0xf) * 17;
+    const b = (bigint & 0xf) * 17;
+    return { r, g, b };
+  }
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return { r, g, b };
+};
+const rgbToHex = (r, g, b) => {
+  const toHex = (v) => {
+    const hex = Math.round(clamp(v, 0, 255)).toString(16);
+    return hex.length === 1 ? `0${hex}` : hex;
+  };
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+const mixHex = (a, b, t) => {
+  const colorA = hexToRgb(a);
+  const colorB = hexToRgb(b);
+  return rgbToHex(
+    lerp(colorA.r, colorB.r, t),
+    lerp(colorA.g, colorB.g, t),
+    lerp(colorA.b, colorB.b, t)
+  );
+};
+const colorTemperatureToRGB = (kelvin) => {
+  const temp = clamp(kelvin, 1000, 40000) / 100;
+  let red;
+  let green;
+  let blue;
+  if (temp <= 66) {
+    red = 255;
+    green = clamp(99.4708025861 * Math.log(temp) - 161.1195681661, 0, 255);
+    blue = temp <= 19 ? 0 : clamp(138.5177312231 * Math.log(temp - 10) - 305.0447927307, 0, 255);
+  } else {
+    red = clamp(329.698727446 * Math.pow(temp - 60, -0.1332047592), 0, 255);
+    green = clamp(288.1221695283 * Math.pow(temp - 60, -0.0755148492), 0, 255);
+    blue = 255;
+  }
+  return `${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)}`;
+};
+const interpolateKeyframes = (keyframes, t) => {
+  if (!keyframes || !keyframes.length) return {};
+  const wrapped = ((t % 1) + 1) % 1;
+  let previous = keyframes[0];
+  let next = keyframes[keyframes.length - 1];
+  for (let i = 0; i < keyframes.length; i++) {
+    if (keyframes[i].t >= wrapped) {
+      next = keyframes[i];
+      break;
+    }
+    previous = keyframes[i];
+  }
+  const span = ((next.t - previous.t) + 1) % 1;
+  const localT = span === 0 ? 0 : ((wrapped - previous.t + 1) % 1) / span;
+  const result = {};
+  const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
+  keys.forEach((key) => {
+    if (key === "t") return;
+    const start = previous[key];
+    const end = next[key];
+    if (typeof start === "number" && typeof end === "number") {
+      result[key] = lerp(start, end, localT);
+    } else if (Array.isArray(start) && Array.isArray(end)) {
+      result[key] = start.map((value, index) => {
+        const endValue = end[index % end.length] || value;
+        if (typeof value === "string" && value.startsWith("#")) {
+          return mixHex(value, endValue, localT);
+        }
+        return lerp(value, endValue, localT);
+      });
+    } else if (typeof start === "string" && typeof end === "string" && start.startsWith("#") && end.startsWith("#")) {
+      result[key] = mixHex(start, end, localT);
+    } else {
+      result[key] = localT < 0.5 ? start : end;
+    }
+  });
+  return result;
+};
+class Perlin {
+  constructor() {
+    this.gradients = {};
+  }
+  generateGradient(x, y) {
+    const angle = Math.random() * TAU;
+    this.gradients[[x, y]] = { x: Math.cos(angle), y: Math.sin(angle) };
+    return this.gradients[[x, y]];
+  }
+  dotGridGradient(ix, iy, x, y) {
+    const key = ix + "," + iy;
+    let gradient = this.gradients[key];
+    if (!gradient) {
+      gradient = this.generateGradient(ix, iy);
+      this.gradients[key] = gradient;
+    }
+    const dx = x - ix;
+    const dy = y - iy;
+    return dx * gradient.x + dy * gradient.y;
+  }
+  smootherstep(t) {
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+  noise(x, y) {
+    const x0 = Math.floor(x);
+    const x1 = x0 + 1;
+    const y0 = Math.floor(y);
+    const y1 = y0 + 1;
+    const sx = this.smootherstep(x - x0);
+    const sy = this.smootherstep(y - y0);
+    const n0 = this.dotGridGradient(x0, y0, x, y);
+    const n1 = this.dotGridGradient(x1, y0, x, y);
+    const ix0 = lerp(n0, n1, sx);
+    const n2 = this.dotGridGradient(x0, y1, x, y);
+    const n3 = this.dotGridGradient(x1, y1, x, y);
+    const ix1 = lerp(n2, n3, sx);
+    return lerp(ix0, ix1, sy);
+  }
+}
+const perlin = new Perlin();
+class TimelineRibbon {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.phase = 0;
+  }
+  draw(scene, state = {}) {
+    const { ctx, canvas } = this;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    const gradient = ctx.createLinearGradient(0, 0, width, 0);
+    const colors = state.gradient && state.gradient.length ? state.gradient : scene.timelineColors.map((stop) => stop.color);
+    colors.forEach((color, index) => {
+      const pos = colors.length === 1 ? 0 : index / (colors.length - 1);
+      gradient.addColorStop(pos, color);
+    });
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, height / 2 - 24, width, 48);
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.beginPath();
+    ctx.moveTo(0, height / 2);
+    for (let x = 0; x <= width; x += 8) {
+      const t = x / width;
+      const intensity = clamp(state.combinedWind ?? state.windIntensity ?? 0.5, 0.2, 1.4);
+      const y = height / 2 + Math.sin(t * 4 * Math.PI + this.phase) * 18 * scene.waveStrength * (0.6 + intensity * 0.5);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(width, height);
+    ctx.lineTo(0, height);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    this.phase += 0.01 * (scene.waveSpeed + (state.combinedWind || state.windIntensity || 0.4) * 0.3);
+  }
+}
+class RippleLayer {
+  constructor(node) {
+    this.node = node;
+  }
+  spawn(x, y, color) {
+    const ripple = document.createElement("div");
+    ripple.className = "ripple";
+    ripple.style.left = `${x - 10}px`;
+    ripple.style.top = `${y - 10}px`;
+    ripple.style.background = `radial-gradient(circle, ${color}, transparent 60%)`;
+    this.node.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 1200);
+  }
+}
+class WeatherMusicScene {
+  constructor(context, name) {
+    this.context = context;
+    this.name = name;
+    this.output = context.createGain();
+    this.output.gain.value = 0;
+    this.noiseCache = null;
+    this.analyser = context.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.output.connect(this.analyser);
+  }
+  connect(node) {
+    this.output.connect(node);
+  }
+  start() {}
+  stop() {}
+  getAnalyser() {
+    return this.analyser;
+  }
+}
+function createNoiseBuffer(context, type = "white") {
+  const duration = 2;
+  const bufferSize = context.sampleRate * duration;
+  const buffer = context.createBuffer(1, bufferSize, context.sampleRate);
+  const data = buffer.getChannelData(0);
+  let lastOut = 0;
+  for (let i = 0; i < bufferSize; i++) {
+    let value = Math.random() * 2 - 1;
+    if (type === "pink") {
+      lastOut = lastOut + 0.02 * value;
+      value = lastOut;
+    }
+    data[i] = value;
+  }
+  return buffer;
+}
+class SunnyMusic extends WeatherMusicScene {
+  constructor(context) {
+    super(context, "Sunlit Pastoral");
+    this.chordProgression = [
+      [60, 64, 67],
+      [67, 71, 74],
+      [69, 72, 76],
+      [65, 69, 72],
+    ];
+    this.bpm = 82;
+    this.active = false;
+    this.master = context.createGain();
+    this.master.gain.value = 0.7;
+    this.master.connect(this.output);
+    this.reverb = context.createConvolver();
+    this.reverb.buffer = this.generateImpulse(2.8, 4.2);
+    this.reverbGain = context.createGain();
+    this.reverbGain.gain.value = 0.45;
+    this.reverb.connect(this.reverbGain);
+    this.reverbGain.connect(this.master);
+    this.musicGain = context.createGain();
+    this.musicGain.connect(this.master);
+    this.birdGain = context.createGain();
+    this.birdGain.gain.value = 0.18;
+    this.birdGain.connect(this.master);
+    this.windGain = context.createGain();
+    this.windGain.gain.value = 0.12;
+    this.windGain.connect(this.master);
+  }
+  midiToFreq(m) {
+    return 440 * Math.pow(2, (m - 69) / 12);
+  }
+  generateImpulse(duration, decay) {
+    const sampleRate = this.context.sampleRate;
+    const length = sampleRate * duration;
+    const impulse = this.context.createBuffer(2, length, sampleRate);
+    for (let channel = 0; channel < impulse.numberOfChannels; channel++) {
+      const data = impulse.getChannelData(channel);
+      for (let i = 0; i < length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+      }
+    }
+    return impulse;
+  }
+  playChord(index) {
+    const notes = this.chordProgression[index % this.chordProgression.length];
+    notes.forEach((note, i) => {
+      const osc = this.context.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = this.midiToFreq(note);
+      const gain = this.context.createGain();
+      const now = this.context.currentTime;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.18 - i * 0.04, now + 0.2);
+      gain.gain.setTargetAtTime(0.0001, now + 1.4, 0.8);
+      osc.connect(gain);
+      gain.connect(this.musicGain);
+      gain.connect(this.reverb);
+      osc.start();
+      osc.stop(now + 4);
+    });
+  }
+  scheduleMelody() {
+    if (!this.active) return;
+    const stepDuration = (60 / this.bpm) * 2;
+    this.playChord(this.step);
+    this.step++;
+    setTimeout(() => this.scheduleMelody(), stepDuration * 1000);
+  }
+  start() {
+    if (this.active) return;
+    this.active = true;
+    this.step = 0;
+    this.scheduleMelody();
+    this.spawnBirds();
+    this.spawnWind();
+  }
+  stop() {
+    this.active = false;
+  }
+  spawnBirds() {
+    const spawn = () => {
+      if (!this.active) return;
+      const osc = this.context.createOscillator();
+      const gain = this.context.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(rand(1800, 2400), this.context.currentTime);
+      gain.gain.setValueAtTime(0, this.context.currentTime);
+      gain.gain.linearRampToValueAtTime(0.25, this.context.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, this.context.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(this.birdGain);
+      osc.start();
+      osc.stop(this.context.currentTime + 0.4);
+      setTimeout(spawn, rand(1800, 3200));
+    };
+    spawn();
+  }
+  spawnWind() {
+    const source = this.context.createBufferSource();
+    if (!this.noiseCache) this.noiseCache = createNoiseBuffer(this.context, "pink");
+    source.buffer = this.noiseCache;
+    const filter = this.context.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(540, this.context.currentTime);
+    filter.Q.value = 0.9;
+    source.connect(filter);
+    filter.connect(this.windGain);
+    source.loop = true;
+    source.start();
+  }
+}
+class RainyMusic extends WeatherMusicScene {
+  constructor(context) {
+    super(context, "Storm Nocturne");
+    this.bpm = 68;
+    this.master = context.createGain();
+    this.master.gain.value = 0.65;
+    this.master.connect(this.output);
+    this.reverb = context.createConvolver();
+    this.reverb.buffer = this.createImpulse(2.8, 3.2);
+    this.reverbGain = context.createGain();
+    this.reverbGain.gain.value = 0.6;
+    this.reverb.connect(this.reverbGain);
+    this.reverbGain.connect(this.master);
+    this.musicGain = context.createGain();
+    this.musicGain.connect(this.master);
+    this.rainGain = context.createGain();
+    this.rainGain.gain.value = 0.4;
+    this.rainGain.connect(this.master);
+    this.thunderGain = context.createGain();
+    this.thunderGain.gain.value = 0.6;
+    this.thunderGain.connect(this.master);
+    this.active = false;
+  }
+  createImpulse(duration, decay) {
+    const length = this.context.sampleRate * duration;
+    const impulse = this.context.createBuffer(2, length, this.context.sampleRate);
+    for (let channel = 0; channel < impulse.numberOfChannels; channel++) {
+      const data = impulse.getChannelData(channel);
+      for (let i = 0; i < length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+      }
+    }
+    return impulse;
+  }
+  midiToFreq(note) {
+    return 440 * Math.pow(2, (note - 69) / 12);
+  }
+  start() {
+    if (this.active) return;
+    this.active = true;
+    this.step = 0;
+    this.playLoop();
+    this.spawnRain();
+    this.spawnThunder();
+  }
+  stop() {
+    this.active = false;
+  }
+  playLoop() {
+    if (!this.active) return;
+    const chords = [
+      [57, 60, 64],
+      [60, 63, 67],
+      [55, 59, 62],
+      [53, 57, 60],
+    ];
+    const chord = chords[this.step % chords.length];
+    chord.forEach((note, i) => {
+      const osc = this.context.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = this.midiToFreq(note);
+      const gain = this.context.createGain();
+      const now = this.context.currentTime;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.2 - i * 0.05, now + 0.1);
+      gain.gain.setTargetAtTime(0.0001, now + 1.8, 0.9);
+      osc.connect(gain);
+      gain.connect(this.musicGain);
+      gain.connect(this.reverb);
+      osc.start();
+      osc.stop(now + 4);
+    });
+    this.step++;
+    const stepDuration = (60 / this.bpm) * 2;
+    setTimeout(() => this.playLoop(), stepDuration * 1000);
+  }
+  spawnRain() {
+    const spawn = () => {
+      if (!this.active) return;
+      const source = this.context.createBufferSource();
+      if (!this.noiseCache) this.noiseCache = createNoiseBuffer(this.context, "white");
+      source.buffer = this.noiseCache;
+      const gain = this.context.createGain();
+      const filter = this.context.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(rand(400, 1200), this.context.currentTime);
+      filter.Q.value = 0.7;
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.rainGain);
+      const now = this.context.currentTime;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(rand(0.08, 0.15), now + rand(0.1, 0.2));
+      gain.gain.setTargetAtTime(0.0001, now + 0.6, 0.4);
+      source.start();
+      source.stop(now + 0.9);
+      setTimeout(spawn, rand(80, 160));
+    };
+    spawn();
+  }
+  spawnThunder() {
+    const trigger = () => {
+      if (!this.active) return;
+      const wait = rand(9000, 16000);
+      setTimeout(() => {
+        if (!this.active) return;
+        const noise = this.context.createBufferSource();
+        if (!this.noiseCache) this.noiseCache = createNoiseBuffer(this.context, "white");
+        noise.buffer = this.noiseCache;
+        const gain = this.context.createGain();
+        const filter = this.context.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(250, this.context.currentTime);
+        filter.Q.value = 1.2;
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.thunderGain);
+        const now = this.context.currentTime;
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.9, now + 0.05);
+        gain.gain.setTargetAtTime(0.0001, now + 2.2, 1.1);
+        noise.start();
+        noise.stop(now + 3);
+        trigger();
+      }, wait);
+    };
+    trigger();
+  }
+}
+class SnowyMusic extends WeatherMusicScene {
+  constructor(context) {
+    super(context, "Aurora Lullaby");
+    this.master = context.createGain();
+    this.master.gain.value = 0.7;
+    this.master.connect(this.output);
+    this.reverb = context.createConvolver();
+    this.reverb.buffer = this.createImpulse(4.4, 6.2);
+    this.reverbGain = context.createGain();
+    this.reverbGain.gain.value = 0.7;
+    this.reverb.connect(this.reverbGain);
+    this.reverbGain.connect(this.master);
+    this.padGain = context.createGain();
+    this.padGain.connect(this.master);
+    this.windGain = context.createGain();
+    this.windGain.gain.value = 0.24;
+    this.windGain.connect(this.master);
+    this.chimeGain = context.createGain();
+    this.chimeGain.gain.value = 0.2;
+    this.chimeGain.connect(this.master);
+    this.active = false;
+  }
+  createImpulse(duration, decay) {
+    const length = this.context.sampleRate * duration;
+    const impulse = this.context.createBuffer(2, length, this.context.sampleRate);
+    for (let channel = 0; channel < impulse.numberOfChannels; channel++) {
+      const data = impulse.getChannelData(channel);
+      for (let i = 0; i < length; i++) {
+        const t = i / length;
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay);
+      }
+    }
+    return impulse;
+  }
+  midiToFreq(m) {
+    return 440 * Math.pow(2, (m - 69) / 12);
+  }
+  start() {
+    if (this.active) return;
+    this.active = true;
+    this.spawnPads();
+    this.spawnWind();
+    this.spawnChimes();
+  }
+  stop() {
+    this.active = false;
+  }
+  spawnPads() {
+    if (!this.active) return;
+    const baseNotes = [48, 55, 60, 67];
+    const now = this.context.currentTime;
+    baseNotes.forEach((note, idx) => {
+      const osc = this.context.createOscillator();
+      const gain = this.context.createGain();
+      osc.type = "sine";
+      osc.frequency.value = this.midiToFreq(note + (idx % 2 === 0 ? 0 : 7));
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.25 - idx * 0.04, now + 2);
+      gain.gain.setTargetAtTime(0.0001, now + 8, 4.2);
+      osc.connect(gain);
+      gain.connect(this.padGain);
+      gain.connect(this.reverb);
+      osc.start();
+      osc.stop(now + 12);
+    });
+    setTimeout(() => this.spawnPads(), 10000);
+  }
+  spawnWind() {
+    if (!this.active) return;
+    const source = this.context.createBufferSource();
+    if (!this.noiseCache) this.noiseCache = createNoiseBuffer(this.context, "white");
+    source.buffer = this.noiseCache;
+    const filter = this.context.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(260, this.context.currentTime);
+    filter.Q.value = 1.4;
+    source.connect(filter);
+    filter.connect(this.windGain);
+    source.loop = true;
+    source.start();
+  }
+  spawnChimes() {
+    const trigger = () => {
+      if (!this.active) return;
+      const osc = this.context.createOscillator();
+      const gain = this.context.createGain();
+      osc.type = "sine";
+      const freq = rand(1400, 1900);
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, this.context.currentTime);
+      gain.gain.linearRampToValueAtTime(0.22, this.context.currentTime + 0.05);
+      gain.gain.setTargetAtTime(0.0001, this.context.currentTime + 1.4, 0.6);
+      osc.connect(gain);
+      gain.connect(this.chimeGain);
+      gain.connect(this.reverb);
+      osc.start();
+      osc.stop(this.context.currentTime + 1.8);
+      setTimeout(trigger, rand(2200, 3400));
+    };
+    trigger();
+  }
+}
+class WindyMusic extends WeatherMusicScene {
+  constructor(context) {
+    super(context, "Tempest Rhapsody");
+    this.master = context.createGain();
+    this.master.gain.value = 0.75;
+    this.master.connect(this.output);
+    this.rhythmGain = context.createGain();
+    this.rhythmGain.connect(this.master);
+    this.windGain = context.createGain();
+    this.windGain.gain.value = 0.45;
+    this.windGain.connect(this.master);
+    this.bassGain = context.createGain();
+    this.bassGain.gain.value = 0.4;
+    this.bassGain.connect(this.master);
+    this.active = false;
+  }
+  midiToFreq(m) {
+    return 440 * Math.pow(2, (m - 69) / 12);
+  }
+  start() {
+    if (this.active) return;
+    this.active = true;
+    this.spawnRhythm();
+    this.spawnWind();
+    this.spawnBass();
+  }
+  stop() {
+    this.active = false;
+  }
+  spawnRhythm() {
+    const step = () => {
+      if (!this.active) return;
+      const osc = this.context.createOscillator();
+      const gain = this.context.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.value = rand(440, 660);
+      gain.gain.setValueAtTime(0, this.context.currentTime);
+      gain.gain.linearRampToValueAtTime(0.3, this.context.currentTime + 0.05);
+      gain.gain.setTargetAtTime(0.0001, this.context.currentTime + 0.4, 0.2);
+      osc.connect(gain);
+      gain.connect(this.rhythmGain);
+      osc.start();
+      osc.stop(this.context.currentTime + 0.5);
+      setTimeout(step, rand(260, 420));
+    };
+    step();
+  }
+  spawnWind() {
+    const source = this.context.createBufferSource();
+    if (!this.noiseCache) this.noiseCache = createNoiseBuffer(this.context, "pink");
+    source.buffer = this.noiseCache;
+    const filter = this.context.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(720, this.context.currentTime);
+    filter.Q.value = 0.8;
+    const lfo = this.context.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = 0.28;
+    const lfoGain = this.context.createGain();
+    lfoGain.gain.value = 280;
+    lfo.connect(lfoGain);
+    lfoGain.connect(filter.frequency);
+    lfo.start();
+    source.connect(filter);
+    filter.connect(this.windGain);
+    source.loop = true;
+    source.start();
+  }
+  spawnBass() {
+    const loop = () => {
+      if (!this.active) return;
+      const note = rand(36, 43);
+      const osc = this.context.createOscillator();
+      const gain = this.context.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.value = this.midiToFreq(note);
+      gain.gain.setValueAtTime(0, this.context.currentTime);
+      gain.gain.linearRampToValueAtTime(0.35, this.context.currentTime + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, this.context.currentTime + 0.8);
+      osc.connect(gain);
+      gain.connect(this.bassGain);
+      osc.start();
+      osc.stop(this.context.currentTime + 0.9);
+      setTimeout(loop, rand(380, 620));
+    };
+    loop();
+  }
+}
+class WeatherMusicEngine {
+  constructor() {
+    this.context = new (window.AudioContext || window.webkitAudioContext)();
+    this.masterGain = this.context.createGain();
+    this.masterGain.connect(this.context.destination);
+    this.masterGain.gain.value = 0.72;
+    this.scenes = {
+      sunny: new SunnyMusic(this.context),
+      rainy: new RainyMusic(this.context),
+      snowy: new SnowyMusic(this.context),
+      windy: new WindyMusic(this.context),
+    };
+    Object.values(this.scenes).forEach((scene) => scene.connect(this.masterGain));
+    this.currentScene = null;
+    this.crossfadeTime = 3;
+  }
+  async resume() {
+    if (this.context.state === "suspended") {
+      await this.context.resume();
+    }
+  }
+  switchScene(name) {
+    const scene = this.scenes[name];
+    if (!scene) return;
+    if (this.currentScene === scene) return;
+    const now = this.context.currentTime;
+    if (this.currentScene) {
+      const fadeGain = this.currentScene.output.gain;
+      fadeGain.cancelScheduledValues(now);
+      fadeGain.setValueAtTime(fadeGain.value, now);
+      fadeGain.linearRampToValueAtTime(0.0001, now + this.crossfadeTime);
+      setTimeout(() => this.currentScene.stop(), this.crossfadeTime * 1000);
+    }
+    this.currentScene = scene;
+    const fadeGain = scene.output.gain;
+    fadeGain.cancelScheduledValues(now);
+    fadeGain.setValueAtTime(fadeGain.value, now);
+    fadeGain.linearRampToValueAtTime(1, now + this.crossfadeTime);
+    scene.start();
+  }
+  setVolume(value) {
+    this.masterGain.gain.setValueAtTime(value, this.context.currentTime);
+  }
+  togglePause() {
+    if (this.context.state === "running") {
+      this.context.suspend();
+      return false;
+    } else {
+      this.context.resume();
+      return true;
+    }
+  }
+  getAnalyser() {
+    return this.currentScene ? this.currentScene.getAnalyser() : null;
+  }
+}
+const scenes = {
+  sunny: {
+    glyph: "☀️",
+    title: "Sunlit Pastoral",
+    description: "Sunset glow bathing the valley.",
+    baseHue: 40,
+    palette: ["#0b1d3a", "#0f2b5a", "#215a9a", "#f9a03f", "#ffd37d"],
+    timelineColors: [
+      { pos: 0, color: "#051434" },
+      { pos: 0.25, color: "#0c3a6f" },
+      { pos: 0.5, color: "#1d6fba" },
+      { pos: 0.75, color: "#f59f4c" },
+      { pos: 1, color: "#ffcf8f" },
+    ],
+    waveStrength: 0.4,
+    waveSpeed: 0.6,
+  },
+  rainy: {
+    glyph: "🌧️",
+    title: "Storm Nocturne",
+    description: "Electric rain whispers across the city.",
+    baseHue: 218,
+    palette: ["#040b16", "#0c1624", "#1d2b3f", "#274a6f", "#8ea8d8"],
+    timelineColors: [
+      { pos: 0, color: "#030910" },
+      { pos: 0.35, color: "#102235" },
+      { pos: 0.7, color: "#1d4465" },
+      { pos: 1, color: "#5471a7" },
+    ],
+    waveStrength: 0.25,
+    waveSpeed: 0.35,
+  },
+  snowy: {
+    glyph: "❄️",
+    title: "Aurora Lullaby",
+    description: "Glacial air humming beneath dancing aurora.",
+    baseHue: 188,
+    palette: ["#041120", "#0b1d36", "#103957", "#4cdce9", "#bc9fff"],
+    timelineColors: [
+      { pos: 0, color: "#050c1a" },
+      { pos: 0.3, color: "#0f2a46" },
+      { pos: 0.6, color: "#195e74" },
+      { pos: 1, color: "#74d1ff" },
+    ],
+    waveStrength: 0.2,
+    waveSpeed: 0.22,
+  },
+  windy: {
+    glyph: "🌪️",
+    title: "Tempest Rhapsody",
+    description: "Currents entwine in roaring spirals.",
+    baseHue: 160,
+    palette: ["#05140f", "#0e2a22", "#1f4d39", "#5f9365", "#d5f9a2"],
+    timelineColors: [
+      { pos: 0, color: "#04120d" },
+      { pos: 0.4, color: "#123728" },
+      { pos: 0.75, color: "#3c6b4f" },
+      { pos: 1, color: "#9fe79a" },
+    ],
+    waveStrength: 0.32,
+    waveSpeed: 0.8,
+  },
+};
+const sceneDynamics = {
+  sunny: {
+    duration: 96,
+    keyframes: [
+      {
+        t: 0,
+        sky: ["#0b1d3a", "#143a63", "#256799", "#f18a3f", "#ffd37d"],
+        accent: "#ffbd70",
+        ambient: "#0b1d3a",
+        cardAmbient: "rgba(14, 22, 34, 0.64)",
+        glow: 0.46,
+        sunElevation: 0.32,
+        sunIntensity: 0.65,
+        colorTemp: 3200,
+        hue: 36,
+      },
+      {
+        t: 0.33,
+        sky: ["#082143", "#1f4e87", "#2f7fc3", "#ffc76a", "#fff2b2"],
+        accent: "#ffe08a",
+        ambient: "#0f2f53",
+        cardAmbient: "rgba(16, 30, 52, 0.58)",
+        glow: 0.62,
+        sunElevation: 0.7,
+        sunIntensity: 1,
+        colorTemp: 6200,
+        hue: 45,
+      },
+      {
+        t: 0.66,
+        sky: ["#081b38", "#1f497b", "#2c6ba0", "#ff9b4a", "#ffd592"],
+        accent: "#ffb973",
+        ambient: "#102545",
+        cardAmbient: "rgba(14, 24, 40, 0.6)",
+        glow: 0.68,
+        sunElevation: 0.55,
+        sunIntensity: 0.88,
+        colorTemp: 5400,
+        hue: 40,
+      },
+      {
+        t: 1,
+        sky: ["#051127", "#0f2747", "#274d75", "#f0743c", "#ffb169"],
+        accent: "#ff9c63",
+        ambient: "#091b33",
+        cardAmbient: "rgba(12, 20, 34, 0.64)",
+        glow: 0.5,
+        sunElevation: 0.38,
+        sunIntensity: 0.72,
+        colorTemp: 3800,
+        hue: 34,
+      },
+    ],
+  },
+  rainy: {
+    duration: 80,
+    lightningProbability: 0.14,
+    keyframes: [
+      {
+        t: 0,
+        sky: ["#040b16", "#0d1c30", "#1f3246", "#274a6f", "#8ea8d8"],
+        accent: "#9db4dd",
+        ambient: "#050d18",
+        cardAmbient: "rgba(8, 16, 28, 0.7)",
+        glow: 0.34,
+        cloudDensity: 0.7,
+        rainIntensity: 0.6,
+        colorTemp: 4200,
+        hue: 215,
+      },
+      {
+        t: 0.45,
+        sky: ["#040915", "#0d1a2c", "#1a2d44", "#2d4f7e", "#a9c6f0"],
+        accent: "#b3c8f2",
+        ambient: "#071226",
+        cardAmbient: "rgba(10, 18, 32, 0.74)",
+        glow: 0.4,
+        cloudDensity: 0.85,
+        rainIntensity: 0.82,
+        colorTemp: 3600,
+        hue: 222,
+      },
+      {
+        t: 0.75,
+        sky: ["#030810", "#0a1626", "#19293d", "#274263", "#7991b7"],
+        accent: "#708ab4",
+        ambient: "#040b16",
+        cardAmbient: "rgba(6, 14, 24, 0.72)",
+        glow: 0.3,
+        cloudDensity: 0.78,
+        rainIntensity: 0.58,
+        colorTemp: 4100,
+        hue: 208,
+      },
+      {
+        t: 1,
+        sky: ["#040b16", "#0d1c30", "#1f3246", "#274a6f", "#8ea8d8"],
+        accent: "#9db4dd",
+        ambient: "#050d18",
+        cardAmbient: "rgba(8, 16, 28, 0.7)",
+        glow: 0.34,
+        cloudDensity: 0.7,
+        rainIntensity: 0.62,
+        colorTemp: 4300,
+        hue: 215,
+      },
+    ],
+  },
+  snowy: {
+    duration: 88,
+    keyframes: [
+      {
+        t: 0,
+        sky: ["#041120", "#0b1f36", "#11406a", "#36c3d8", "#b6a6ff"],
+        accent: "#8ce6ff",
+        ambient: "#041225",
+        cardAmbient: "rgba(8, 18, 34, 0.62)",
+        glow: 0.56,
+        colorTemp: 5200,
+        auroraPulse: 0.28,
+        auroraDrift: 0.04,
+        hue: 188,
+      },
+      {
+        t: 0.5,
+        sky: ["#031528", "#0c2840", "#145178", "#49e7f1", "#d0c0ff"],
+        accent: "#a9f5ff",
+        ambient: "#05172d",
+        cardAmbient: "rgba(10, 24, 44, 0.6)",
+        glow: 0.6,
+        colorTemp: 5600,
+        auroraPulse: 0.45,
+        auroraDrift: 0.07,
+        hue: 195,
+      },
+      {
+        t: 1,
+        sky: ["#041120", "#0b1f36", "#11406a", "#36c3d8", "#b6a6ff"],
+        accent: "#8ce6ff",
+        ambient: "#041225",
+        cardAmbient: "rgba(8, 18, 34, 0.62)",
+        glow: 0.54,
+        colorTemp: 5000,
+        auroraPulse: 0.32,
+        auroraDrift: 0.05,
+        hue: 188,
+      },
+    ],
+  },
+  windy: {
+    duration: 70,
+    keyframes: [
+      {
+        t: 0,
+        sky: ["#05140f", "#0e2a22", "#1f4d39", "#5f9365", "#d5f9a2"],
+        accent: "#b6f28e",
+        ambient: "#051711",
+        cardAmbient: "rgba(10, 24, 20, 0.64)",
+        glow: 0.48,
+        windIntensity: 0.5,
+        colorTemp: 4500,
+        hue: 160,
+      },
+      {
+        t: 0.4,
+        sky: ["#04140f", "#12312a", "#24563e", "#7cc57a", "#f0ffd0"],
+        accent: "#e4ff9c",
+        ambient: "#062119",
+        cardAmbient: "rgba(12, 28, 22, 0.62)",
+        glow: 0.56,
+        windIntensity: 0.78,
+        colorTemp: 5200,
+        hue: 154,
+      },
+      {
+        t: 0.8,
+        sky: ["#061813", "#132f27", "#21523d", "#6aa56f", "#d6f1a5"],
+        accent: "#c6f98d",
+        ambient: "#071c16",
+        cardAmbient: "rgba(10, 26, 20, 0.64)",
+        glow: 0.5,
+        windIntensity: 0.66,
+        colorTemp: 4800,
+        hue: 158,
+      },
+      {
+        t: 1,
+        sky: ["#05140f", "#0e2a22", "#1f4d39", "#5f9365", "#d5f9a2"],
+        accent: "#b6f28e",
+        ambient: "#051711",
+        cardAmbient: "rgba(10, 24, 20, 0.64)",
+        glow: 0.48,
+        windIntensity: 0.52,
+        colorTemp: 4600,
+        hue: 160,
+      },
+    ],
+  },
+};
+const dynamicState = {
+  gradient: [...scenes.sunny.palette],
+  accent: scenes.sunny.palette[3],
+  ambient: scenes.sunny.palette[0],
+  cardAmbient: "rgba(12, 16, 26, 0.55)",
+  glow: 0.5,
+  sunElevation: 0.4,
+  sunIntensity: 0.7,
+  cloudDensity: 0.6,
+  rainIntensity: 0.6,
+  auroraPulse: 0.3,
+  auroraDrift: 0.05,
+  auroraPhase: 0,
+  windIntensity: 0.5,
+  windSwirl: 0,
+  lightningFlash: 0,
+  colorTemp: 4800,
+  hue: scenes.sunny.baseHue,
+};
+let scenePhase = 0;
+let lastFrameTime = null;
+function updateDynamicState(delta = 0, immediate = false) {
+  const config = sceneDynamics[currentScene];
+  if (!config) return;
+  if (immediate) {
+    scenePhase = 0;
+    dynamicState.auroraPhase = 0;
+    dynamicState.lightningFlash = 0;
+  }
+  if (config.duration > 0 && delta > 0) {
+    scenePhase = (scenePhase + delta / config.duration) % 1;
+  }
+  const sample = interpolateKeyframes(config.keyframes, scenePhase);
+  dynamicState.gradient = sample.sky || dynamicState.gradient;
+  dynamicState.accent = sample.accent || dynamicState.accent;
+  dynamicState.ambient = sample.ambient || dynamicState.ambient;
+  dynamicState.cardAmbient = sample.cardAmbient || dynamicState.cardAmbient;
+  dynamicState.glow = sample.glow ?? dynamicState.glow;
+  dynamicState.sunElevation = sample.sunElevation ?? dynamicState.sunElevation;
+  dynamicState.sunIntensity = sample.sunIntensity ?? dynamicState.sunIntensity;
+  dynamicState.cloudDensity = sample.cloudDensity ?? dynamicState.cloudDensity;
+  dynamicState.rainIntensity = sample.rainIntensity ?? dynamicState.rainIntensity;
+  dynamicState.auroraPulse = sample.auroraPulse ?? dynamicState.auroraPulse;
+  dynamicState.auroraDrift = sample.auroraDrift ?? dynamicState.auroraDrift;
+  dynamicState.windIntensity = sample.windIntensity ?? dynamicState.windIntensity;
+  dynamicState.colorTemp = sample.colorTemp ?? dynamicState.colorTemp;
+  dynamicState.hue = sample.hue ?? dynamicState.hue;
+  if (currentScene === "rainy") {
+    dynamicState.lightningFlash = Math.max(0, dynamicState.lightningFlash - delta * 0.8);
+    const chance = (config.lightningProbability || 0) * delta;
+    if (Math.random() < chance) {
+      dynamicState.lightningFlash = 1;
+    }
+  } else {
+    dynamicState.lightningFlash = Math.max(0, dynamicState.lightningFlash - delta * 0.4);
+  }
+  dynamicState.auroraPhase = (dynamicState.auroraPhase || 0) + (dynamicState.auroraDrift || 0.05) * delta * 2;
+  dynamicState.windSwirl = (dynamicState.windSwirl || 0) + delta * 60 * (0.3 + (dynamicState.windIntensity || 0.5));
+  const windAngle = dynamicState.windSwirl % 360;
+  document.documentElement.style.setProperty("--wind-angle", `${windAngle.toFixed(2)}deg`);
+  const combinedWind = clamp(
+    (dynamicState.windIntensity || 0.5) * 0.7 + (dynamicState.metricWind || 0) * 0.6,
+    0,
+    1.5
+  );
+  dynamicState.combinedWind = combinedWind;
+  document.documentElement.style.setProperty(
+    "--wind-opacity",
+    clamp(0.45 + combinedWind * 0.35, 0.45, 0.95).toFixed(2)
+  );
+  const temperatureRGB = colorTemperatureToRGB(dynamicState.colorTemp);
+  document.documentElement.style.setProperty("--color-temp-rgb", temperatureRGB);
+  document.documentElement.style.setProperty("--scene-hue", dynamicState.hue);
+  document.documentElement.style.setProperty("--accent-color", dynamicState.accent);
+  document.documentElement.style.setProperty("--scene-ambient", dynamicState.ambient);
+  document.documentElement.style.setProperty("--bg-color", dynamicState.ambient);
+  document.documentElement.style.setProperty("--card-ambient", dynamicState.cardAmbient);
+  document.documentElement.style.setProperty("--glow-strength", dynamicState.glow);
+  const gradientTop = dynamicState.gradient[0];
+  const gradientBottom = dynamicState.gradient[dynamicState.gradient.length - 1];
+  document.body.style.background = `radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.08), transparent 60%),
+    radial-gradient(circle at 80% 10%, rgba(255, 255, 255, 0.04), transparent 70%),
+    radial-gradient(circle at 50% 90%, rgba(255, 255, 255, 0.06), transparent 70%),
+    linear-gradient(${120 + Math.sin(scenePhase * TAU) * 30}deg, ${gradientTop}, ${gradientBottom})`;
+}
+class SkyRenderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.raindrops = [];
+    this.snowflakes = [];
+    this.windParticles = [];
+    this.auroraPhase = 0;
+    this.cloudPhase = 0;
+    this.resize();
+    window.addEventListener("resize", () => this.resize());
+  }
+  resize() {
+    this.canvas.width = window.innerWidth * devicePixelRatio;
+    this.canvas.height = window.innerHeight * devicePixelRatio;
+  }
+  spawnRaindrops() {
+    const density = 220;
+    this.raindrops = Array.from({ length: density }, () => ({
+      x: Math.random() * this.canvas.width,
+      y: Math.random() * this.canvas.height,
+      speed: rand(8, 16) * devicePixelRatio,
+      length: rand(35, 65) * devicePixelRatio,
+      offset: rand(-1.2, 1.2),
+    }));
+  }
+  spawnSnowflakes() {
+    const density = 180;
+    this.snowflakes = Array.from({ length: density }, () => ({
+      x: Math.random() * this.canvas.width,
+      y: Math.random() * this.canvas.height,
+      size: rand(2, 5) * devicePixelRatio,
+      speed: rand(0.3, 1.2) * devicePixelRatio,
+      sway: rand(0.4, 1.2) * devicePixelRatio,
+      angle: Math.random() * TAU,
+    }));
+  }
+  spawnWindParticles() {
+    const density = 140;
+    this.windParticles = Array.from({ length: density }, () => ({
+      x: Math.random() * this.canvas.width,
+      y: Math.random() * this.canvas.height,
+      speed: rand(1.2, 2.4) * devicePixelRatio,
+      size: rand(2, 8) * devicePixelRatio,
+      angle: Math.random() * TAU,
+    }));
+  }
+  render(sceneKey, analyser, state = {}) {
+    const scene = scenes[sceneKey];
+    const { ctx, canvas } = this;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    const palette = state.gradient && state.gradient.length ? state.gradient : scene.palette;
+    palette.forEach((color, index) => {
+      const position = palette.length === 1 ? 0 : index / (palette.length - 1);
+      gradient.addColorStop(position, color);
+    });
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    switch (sceneKey) {
+      case "sunny":
+        this.drawSunny(analyser, state);
+        break;
+      case "rainy":
+        this.drawRainy(analyser, state);
+        break;
+      case "snowy":
+        this.drawSnowy(analyser, state);
+        break;
+      case "windy":
+        this.drawWindy(analyser, state);
+        break;
+    }
+    ctx.restore();
+  }
+  drawSunny(analyser, state = {}) {
+    const { ctx, canvas } = this;
+    const width = canvas.width;
+    const height = canvas.height;
+    const elevation = clamp(state.sunElevation ?? 0.45, 0.1, 0.9);
+    const intensity = clamp(state.sunIntensity ?? 0.8, 0.4, 1.2);
+    const lateralDrift = Math.sin(Date.now() * 0.00025) * 0.08;
+    const sunX = width * (0.2 + elevation * 0.55 + lateralDrift * 0.2);
+    const sunY = height * (0.65 - elevation * 0.4);
+    const sunRadius = height * (0.12 + intensity * 0.08);
+    const gradient = ctx.createRadialGradient(sunX, sunY, sunRadius * 0.15, sunX, sunY, sunRadius);
+    gradient.addColorStop(0, `rgba(255, ${220 + intensity * 20}, ${180 + intensity * 40}, ${0.7 + intensity * 0.2})`);
+    gradient.addColorStop(0.6, `rgba(255, ${180 + intensity * 40}, ${100 + intensity * 30}, ${0.4 + intensity * 0.2})`);
+    gradient.addColorStop(1, "rgba(255, 150, 40, 0)");
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, sunRadius, 0, TAU);
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    this.cloudPhase += 0.001 + intensity * 0.0006;
+    ctx.globalAlpha = clamp(0.35 + (1 - intensity) * 0.4, 0.28, 0.65);
+    for (let i = 0; i < 6; i++) {
+      const y = height * 0.2 + i * 120 * devicePixelRatio;
+      ctx.beginPath();
+      for (let x = 0; x <= width; x += 40 * devicePixelRatio) {
+        const noise = perlin.noise(x * 0.0008 + this.cloudPhase, y * 0.0006 + i * 20);
+        const offset = noise * 70 * devicePixelRatio;
+        if (x === 0) ctx.moveTo(x, y + offset);
+        else ctx.lineTo(x, y + offset);
+      }
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.12 + i * 0.05})`;
+      ctx.lineWidth = 120 * devicePixelRatio;
+      ctx.lineCap = "round";
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 0.35;
+    const shimmerStrength = 10 * intensity;
+    for (let i = 0; i < 80; i++) {
+      const shimmerX = Math.random() * width;
+      const shimmerY = height * 0.65 + Math.sin((shimmerX + Date.now() * 0.05) * 0.002) * 8;
+      ctx.fillStyle = `rgba(255, 220, 160, ${0.05 * intensity})`;
+      ctx.fillRect(shimmerX, shimmerY, 2 * devicePixelRatio, shimmerStrength * devicePixelRatio);
+    }
+    ctx.globalAlpha = 1;
+    if (analyser) {
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(data);
+      const low = data.slice(0, 16).reduce((sum, v) => sum + v, 0) / 16;
+      ctx.globalAlpha = clamp(low / 200, 0.05, 0.4);
+      ctx.fillStyle = "rgba(255, 225, 180, 0.35)";
+      for (let i = 0; i < 80; i++) {
+        const angle = Math.random() * TAU;
+        const radius = sunRadius * (0.9 + Math.random() * 0.5);
+        const x = sunX + Math.cos(angle) * radius;
+        const y = sunY + Math.sin(angle) * radius;
+        ctx.fillRect(x, y, 2 * devicePixelRatio, 12 * devicePixelRatio);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  drawRainy(analyser, state = {}) {
+    const { ctx, canvas } = this;
+    const width = canvas.width;
+    const height = canvas.height;
+    if (!this.raindrops.length) this.spawnRaindrops();
+    const density = clamp(state.cloudDensity ?? 0.7, 0.2, 1.1);
+    const intensity = clamp(state.rainIntensity ?? 0.6, 0.2, 1.2);
+    ctx.globalAlpha = clamp(0.45 + density * 0.4, 0.4, 0.95);
+    this.raindrops.forEach((drop) => {
+      ctx.beginPath();
+      const x = drop.x + drop.offset * 40;
+      const y = drop.y;
+      const grad = ctx.createLinearGradient(x, y, x + drop.offset * 6, y + drop.length);
+      grad.addColorStop(0, "rgba(200, 220, 255, 0.1)");
+      grad.addColorStop(1, "rgba(200, 220, 255, 0.55)");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.3 * devicePixelRatio;
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + drop.offset * 6, y + drop.length);
+      ctx.stroke();
+      drop.y += drop.speed * (1.2 + intensity * 0.8);
+      drop.x += drop.offset * drop.speed * 0.25 * (0.8 + intensity * 0.5);
+      if (drop.y > height) {
+        drop.y = -20;
+        drop.x = Math.random() * width;
+      }
+    });
+    ctx.globalAlpha = 1;
+    if ((state.lightningFlash || 0) > 0.01) {
+      const flash = clamp(state.lightningFlash, 0, 1);
+      ctx.fillStyle = `rgba(255,255,255,${0.12 * flash})`;
+      ctx.fillRect(0, 0, width, height);
+    }
+    if (analyser) {
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(data);
+      const low = data.slice(0, 12).reduce((sum, v) => sum + v, 0) / 12;
+      ctx.globalAlpha = clamp(low / 220, 0.05, 0.3);
+      ctx.fillStyle = "rgba(70, 120, 200, 0.25)";
+      for (let i = 0; i < 6; i++) {
+        const radius = rand(120, 220) * devicePixelRatio;
+        ctx.beginPath();
+        ctx.arc(Math.random() * width, height - rand(40, 120) * devicePixelRatio, radius, 0, TAU);
+        ctx.strokeStyle = "rgba(120, 160, 220, 0.35)";
+        ctx.lineWidth = 2 * devicePixelRatio;
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  drawSnowy(analyser, state = {}) {
+    const { ctx, canvas } = this;
+    const width = canvas.width;
+    const height = canvas.height;
+    if (!this.snowflakes.length) this.spawnSnowflakes();
+    const drift = clamp(state.auroraDrift ?? 0.05, 0.01, 0.1);
+    this.auroraPhase = state.auroraPhase ?? this.auroraPhase;
+    this.auroraPhase += drift;
+    const gradient = ctx.createLinearGradient(0, 0, width, 0);
+    const auroraShift = state.auroraPulse ?? 0.3;
+    gradient.addColorStop(0, `hsla(${180 + Math.sin(this.auroraPhase) * 40}, 70%, ${60 + auroraShift * 20}%, 0.28)`);
+    gradient.addColorStop(1, `hsla(${240 + Math.cos(this.auroraPhase * 0.8) * 60}, 75%, ${55 + auroraShift * 15}%, 0.38)`);
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = gradient;
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      const y = height * (0.1 + i * 0.12);
+      ctx.moveTo(0, y);
+      for (let x = 0; x <= width; x += 18 * devicePixelRatio) {
+        const offset = Math.sin(x * 0.0008 + this.auroraPhase + i) * 60 * devicePixelRatio;
+        ctx.lineTo(x, y + offset);
+      }
+      ctx.lineTo(width, height);
+      ctx.lineTo(0, height);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 0.9;
+    this.snowflakes.forEach((flake) => {
+      ctx.save();
+      ctx.translate(flake.x, flake.y);
+      ctx.rotate(flake.angle);
+      const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, flake.size * 2);
+      gradient.addColorStop(0, "rgba(255,255,255,0.9)");
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(-flake.size, -flake.size, flake.size * 2, flake.size * 2);
+      ctx.restore();
+      flake.angle += 0.005;
+      flake.x += Math.sin(flake.angle * 2) * flake.sway;
+      flake.y += flake.speed * 4;
+      if (flake.y > height) {
+        flake.y = -20;
+        flake.x = Math.random() * width;
+      }
+    });
+    if (analyser) {
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(data);
+      const mid = data.slice(12, 32).reduce((sum, v) => sum + v, 0) / 20;
+      ctx.globalAlpha = clamp(mid / 260, 0.1, 0.35);
+      ctx.strokeStyle = "rgba(180, 240, 255, 0.35)";
+      for (let i = 0; i < 10; i++) {
+        const x = Math.random() * width;
+        const y = height - rand(30, 160) * devicePixelRatio;
+        ctx.beginPath();
+        ctx.arc(x, y, rand(18, 40) * devicePixelRatio, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  drawWindy(analyser, state = {}) {
+    const { ctx, canvas } = this;
+    const width = canvas.width;
+    const height = canvas.height;
+    if (!this.windParticles.length) this.spawnWindParticles();
+    const windForce = clamp(state.windIntensity ?? 0.6, 0.2, 1.2);
+    ctx.globalAlpha = clamp(0.35 + windForce * 0.3, 0.35, 0.85);
+    const layers = 5;
+    for (let i = 0; i < layers; i++) {
+      ctx.beginPath();
+      ctx.moveTo(0, height * (0.2 + i * 0.15));
+      for (let x = 0; x <= width; x += 12 * devicePixelRatio) {
+        const offset = Math.sin(x * 0.001 + Date.now() * 0.0004 + i) * 60 * windForce * devicePixelRatio;
+        ctx.lineTo(x, height * (0.2 + i * 0.15) + offset);
+      }
+      ctx.strokeStyle = `rgba(170, 220, 180, ${0.08 + i * 0.05 * windForce})`;
+      ctx.lineWidth = 3 * devicePixelRatio;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    this.windParticles.forEach((p) => {
+      ctx.beginPath();
+      const tailX = p.x - Math.cos(p.angle) * p.size * 12;
+      const tailY = p.y - Math.sin(p.angle) * p.size * 12;
+      const gradient = ctx.createLinearGradient(tailX, tailY, p.x, p.y);
+      gradient.addColorStop(0, "rgba(170,220,200,0)");
+      gradient.addColorStop(1, "rgba(220,255,200,0.8)");
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = p.size;
+      ctx.moveTo(tailX, tailY);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      p.x += Math.cos(p.angle) * p.speed * 6 * windForce;
+      p.y += Math.sin(p.angle) * p.speed * 6 * windForce;
+      p.angle += Math.sin(Date.now() * 0.0005 + p.x * 0.001) * 0.02 * (0.6 + windForce * 0.6);
+      if (p.x > width + 50 || p.y > height + 50 || p.x < -50 || p.y < -50) {
+        p.x = Math.random() * width;
+        p.y = Math.random() * height;
+      }
+    });
+    if (analyser) {
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(data);
+      const high = data.slice(30, 60).reduce((sum, v) => sum + v, 0) / 30;
+      ctx.globalAlpha = clamp(high / 300, 0.1, 0.45);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      for (let i = 0; i < 12; i++) {
+        ctx.beginPath();
+        const radius = rand(80, 180) * devicePixelRatio;
+        const cx = width * 0.5;
+        const cy = height * 0.6;
+        const startAngle = Date.now() * 0.0005 + i;
+        ctx.arc(cx, cy, radius, startAngle, startAngle + Math.PI / 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+const sky = new SkyRenderer(document.getElementById("sky"));
+const timeline = new TimelineRibbon(document.getElementById("timelineCanvas"));
+const rippleLayer = new RippleLayer(document.getElementById("ripple-layer"));
+const musicEngine = new WeatherMusicEngine();
+let currentScene = "sunny";
+let allowAudio = false;
+const card = document.getElementById("weatherCard");
+const glyph = document.getElementById("sceneGlyph");
+const statusLine = document.getElementById("sceneStatus");
+const timeLabel = document.getElementById("timeLabel");
+const musicTitle = document.getElementById("musicTitle");
+const tempValue = document.getElementById("tempValue");
+const humidityValue = document.getElementById("humidity");
+const windSpeedValue = document.getElementById("windSpeed");
+const uvIndexValue = document.getElementById("uvIndex");
+const dewPointValue = document.getElementById("dewPoint");
+const spectralBars = document.getElementById("spectral-bars");
+for (let i = 0; i < 12; i++) {
+  spectralBars.appendChild(document.createElement("span"));
+}
+const barElements = [...spectralBars.children];
+const sceneButtons = document.querySelectorAll(".scene-switcher button");
+sceneButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const scene = button.dataset.scene;
+    if (scene === currentScene) return;
+    setScene(scene);
+  });
+});
+function setScene(key) {
+  currentScene = key;
+  sceneButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.scene === key));
+  const scene = scenes[key];
+  glyph.textContent = scene.glyph;
+  statusLine.textContent = scene.description;
+  document.documentElement.style.setProperty("--scene-hue", scene.baseHue);
+  document.documentElement.style.setProperty("--accent-color", scene.palette[3]);
+  document.documentElement.style.setProperty("--bg-color", scene.palette[0]);
+  document.documentElement.style.setProperty(
+    "--glow-strength",
+    key === "rainy" ? 0.38 : key === "sunny" ? 0.6 : key === "snowy" ? 0.48 : 0.52
+  );
+  musicTitle.textContent = scene.title;
+  updateMetrics(key);
+  updateDynamicState(0, true);
+  if (allowAudio) {
+    musicEngine.switchScene(key);
+  }
+}
+function updateMetrics(scene) {
+  const presets = {
+    sunny: { temp: 29, humidity: 58, wind: 12, uv: 6, dew: 18 },
+    rainy: { temp: 19, humidity: 92, wind: 22, uv: 1, dew: 17 },
+    snowy: { temp: -6, humidity: 78, wind: 14, uv: 2, dew: -9 },
+    windy: { temp: 12, humidity: 64, wind: 48, uv: 3, dew: 5 },
+  };
+  const values = presets[scene];
+  tempValue.textContent = values.temp;
+  humidityValue.textContent = values.humidity;
+  windSpeedValue.textContent = values.wind;
+  uvIndexValue.textContent = values.uv;
+  dewPointValue.textContent = values.dew;
+  const humidityLevel = clamp(values.humidity / 100, 0, 1);
+  document.documentElement.style.setProperty("--humidity-level", humidityLevel.toFixed(2));
+  document.documentElement.style.setProperty(
+    "--humidity-glow",
+    clamp(0.3 + humidityLevel * 0.7, 0.3, 0.95).toFixed(2)
+  );
+  const windLevel = clamp(values.wind / 80, 0, 1);
+  document.documentElement.style.setProperty("--wind-level", windLevel.toFixed(2));
+  dynamicState.metricWind = windLevel;
+  const uvLevel = clamp(values.uv / 11, 0, 1);
+  document.documentElement.style.setProperty("--uv-level", uvLevel.toFixed(2));
+  const dewShift = clamp((values.dew + 20) / 60, 0, 1);
+  document.documentElement.style.setProperty("--dew-shift", dewShift.toFixed(2));
+  document.documentElement.style.setProperty(
+    "--dew-opacity",
+    clamp(0.45 + Math.abs(0.5 - dewShift) * 0.6, 0.45, 0.95).toFixed(2)
+  );
+}
+function updateTime() {
+  const now = new Date();
+  const hh = now.getHours().toString().padStart(2, "0");
+  const mm = now.getMinutes().toString().padStart(2, "0");
+  timeLabel.textContent = `${hh}:${mm}`;
+}
+updateTime();
+setInterval(updateTime, 60000);
+const startButton = document.getElementById("startExperience");
+startButton.addEventListener("click", async () => {
+  document.getElementById("splash").style.display = "none";
+  await musicEngine.resume();
+  allowAudio = true;
+  setScene(currentScene);
+  musicEngine.switchScene(currentScene);
+});
+const toggleAudio = document.getElementById("toggleAudio");
+toggleAudio.addEventListener("click", async () => {
+  await musicEngine.resume();
+  const running = musicEngine.togglePause();
+  toggleAudio.textContent = running ? "⏸" : "▶";
+});
+const volumeRange = document.getElementById("volume");
+volumeRange.addEventListener("input", (event) => {
+  musicEngine.setVolume(parseFloat(event.target.value));
+});
+function animateSpectralBars() {
+  const analyser = musicEngine.getAnalyser();
+  if (analyser) {
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(data);
+    barElements.forEach((bar, index) => {
+      const value = data[index * 2] / 255;
+      bar.style.height = `${12 + value * 20}px`;
+      bar.style.background = `linear-gradient(180deg, rgba(255,255,255,${0.6 + value * 0.4}), rgba(255,255,255,0.1))`;
+    });
+  }
+  requestAnimationFrame(animateSpectralBars);
+}
+animateSpectralBars();
+function animate(now) {
+  if (lastFrameTime === null) {
+    lastFrameTime = now;
+  }
+  const delta = (now - lastFrameTime) / 1000;
+  lastFrameTime = now;
+  updateDynamicState(delta);
+  const analyser = musicEngine.getAnalyser();
+  sky.render(currentScene, analyser, dynamicState);
+  timeline.draw(scenes[currentScene], dynamicState);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+card.addEventListener("mousemove", (event) => {
+  const rect = card.getBoundingClientRect();
+  const percentX = (event.clientX - rect.left) / rect.width * 2 - 1;
+  const percentY = (event.clientY - rect.top) / rect.height * 2 - 1;
+  const rotateX = percentY * 6;
+  const rotateY = percentX * -6;
+  card.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+});
+card.addEventListener("mouseleave", () => {
+  card.style.transform = "rotateX(0deg) rotateY(0deg)";
+});
+document.addEventListener("mousemove", (event) => {
+  document.documentElement.style.setProperty("--pointer-x", `${event.clientX}px`);
+  document.documentElement.style.setProperty("--pointer-y", `${event.clientY}px`);
+  document.documentElement.style.setProperty("--pointer-active", "1");
+});
+window.addEventListener("mouseout", (event) => {
+  if (!event.relatedTarget && !event.toElement) {
+    document.documentElement.style.setProperty("--pointer-active", "0");
+  }
+});
+card.addEventListener("click", (event) => {
+  const colorMap = {
+    sunny: "rgba(255,220,160,0.75)",
+    rainy: "rgba(120,180,255,0.6)",
+    snowy: "rgba(190,235,255,0.7)",
+    windy: "rgba(200,255,200,0.65)",
+  };
+  rippleLayer.spawn(event.offsetX, event.offsetY, colorMap[currentScene]);
+  if (allowAudio) {
+    const now = musicEngine.context.currentTime;
+    const osc = musicEngine.context.createOscillator();
+    const gain = musicEngine.context.createGain();
+    osc.type = "sine";
+    osc.frequency.value = rand(600, 900);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.2, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+    osc.connect(gain);
+    gain.connect(musicEngine.masterGain);
+    osc.start();
+    osc.stop(now + 0.5);
+  }
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && musicEngine.context.state === "running") {
+    musicEngine.context.suspend();
+  }
+});
+setScene("sunny");
+</script>
+</body>
+</html>
